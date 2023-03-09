@@ -1,0 +1,185 @@
+--12.
+-- afisati varsta celui mai tanar elev participant la olimpiada de matematica
+select floor(months_between(sysdate,max(data_nastere))/12) as Varsta
+from elevi
+where elev_id in (select elev_id 
+                  from participa
+                  where proba_id=(select proba_id
+                                  from probe
+                                  where materie_id=(select materie_id
+                                  from materii
+                                  where initcap(nume_materie)='Matematica')
+                                  )
+                  );
+
+                                 
+
+--selectati elevii care fac parte din lotul cu cei mai multi elevi si afisati pentru acestia numele lor, 
+--profesorii lor indrumatori, alaturi de materia pe care le-o preda si in ce an
+--ordonati crescator dupa an si id, cu valorile in care nu se stie anul primele
+
+select elevi.elev_id,elevi.nume ||' '||elevi.prenume as Elev, materii.nume_materie,
+profesori_indrumatori.nume ||' '|| profesori_indrumatori.prenume as Profesor, preda.an
+from materii, elevi, preda, profesori_indrumatori
+where elevi.elev_id in (select elev_id
+                    from apartine
+                    where lot_id in (select a.lot_id 
+                                    from apartine a, loturi l
+                                    where a.lot_id=l.lot_id
+                                    group by l.lot_id
+                                    having count(*)=(
+                                                        select max(count(*)) 
+                                                        from apartine a, loturi l
+                                                        where a.lot_id=l.lot_id
+                                                        group by a.elev_id))
+                    )
+      and preda.elev_id=elevi.elev_id
+      and preda.materie_id=materii.materie_id
+      and preda.profesor_id=profesori_indrumatori.profesor_id
+order by nvl(preda.an,0), elevi.elev_id
+        ;
+        
+
+--selectati pt fiecare elev cu lungimea prenumelui=4 
+--orasul din care provine, cati elevi provin din acel
+--oras, cate loturi il reprezinta si cate locatii din baza dde date se afla in acel oras
+
+select outer.nume ||' '|| outer.prenume Elev, o.nume_oras, (select count(*)
+                                            from elevi inner
+                                             where outer.oras_id=inner.oras_id
+                                             ) Nr_elevi ,
+                                           (select count(*)
+                                            from loturi inner
+                                             where outer.oras_id=inner.oras_id
+                                             ) Nr_loturi,
+                                            (select count(*)
+                                            from locatii inner
+                                             where outer.oras_id=inner.oras_id
+                                             ) Nr_locatii
+from elevi outer, orase o
+where length(prenume)=4 and outer.oras_id=o.oras_id;
+
+
+--ordonati elevii in functie de ce premiu au luat la probe
+select Elev, decode(premiu_maxim, 1, 'Premiul I', 2, 'Premiul II', 3, 'Premiul III', 4, 'Mentiune', 5, 'Nu a obtinut premiu')
+from (with 
+      aux as (
+                select e.nume||' '|| prenume Elev ,(  select max(premii)
+                                    from
+                                         (select (case(premiu)
+                                                 when 'Premiul I' then 1
+                                                        when 'Premiul II' then 2
+                                                        when 'Premiul III' then 3
+                                                        when 'Mentiune' then 4
+                                                        else 5
+                                                        end) premii
+                                           from (select premiu
+                                                 from participa
+                                                 where participa.elev_id=e.elev_id )
+                                                                               
+                                           )  
+                                    ) premiu_maxim
+                from elevi e
+               )
+        select *
+        from aux
+        order by aux.premiu_maxim
+    )
+;
+
+
+--numele cazarilor pt cazarile cu media capacitatii camerelor cea mai mica
+
+select cazari.nume, floor( avg(camere.capacitate))
+from cazari,camere
+where camere.cazare_id=cazari.cazare_id
+group by cazari.nume
+having floor(avg(camere.capacitate))=(select min( floor(avg(camere.capacitate)))
+                                        from camere, cazari
+                                        where camere.cazare_id=cazari.cazare_id
+                                        group by cazari.cazare_id);
+
+--13.
+--Inlocuiti data de nastere a elevilor care participa la clasa a 7a 
+update elevi
+set data_nastere=to_date('10/01/2008', 'DD/MM/YYYY')
+where elev_id in (select participa.elev_id
+from participa, probe 
+where participa.proba_id=probe.proba_id
+and clasa=7);
+
+--Schimbati clasa si durata probelor la Romana,clasa a 7-a
+update probe 
+set clasa=8, durata=180
+where clasa=7 and materie_id=(select materie_id from materii where initcap(nume_materie)='Romana');
+
+--stergeti participarile la olimpiada ale elevilor cu numele Sandu
+delete from participa
+where elev_id=(select elev_id from elevi where nume='Sandu');
+
+--16.
+--outer join pe 4 tabele
+--afisati pt toti elevii din sistem, la ce proba au participat, sau null daca nu au participat la nicio proba
+select e.nume || ' ' ||e.prenume Nume_elev, pr.proba_id, m.nume_materie 
+from elevi e, participa pa, probe pr, materii m
+where pa.elev_id(+)=e.elev_id 
+and pa.proba_id=pr.proba_id(+) 
+and pr.materie_id=m.materie_id(+); 
+
+--division
+
+--afisati orasele care au elevi reprezentanti la toate probele
+
+select distinct o.oras_id,o.nume_oras 
+from participa pa, orase o
+where not exists
+    (select 1
+     from probe p
+     where not exists
+        (select oras_id
+        from participa b
+        where p.proba_id=b.proba_id
+        and b.oras_id=pa.oras_id)
+        )
+    and o.oras_id=pa.oras_id;    
+
+--afisati profesorii care predau la scolile care au elevi participanti la toate probele
+select pi.nume ||' '||pi.prenume Nume_profesor, sc.nume_scoala 
+from profesori_indrumatori pi, scoli sc
+where pi.scoala_id in (
+select distinct s.scoala_id
+from participa pa, scoli s
+where not exists
+    (select 1
+     from probe p
+     where not exists
+        (select scoala_id
+        from participa b
+        where p.proba_id=b.proba_id
+        and b.scoala_id=pa.scoala_id)
+        )
+    and s.scoala_id=pa.scoala_id)
+    and sc.scoala_id=pi.scoala_id;
+
+--17. Afisati numele elevilor care au luat Mentiune la olimpiadă în clasa a 8a sau a 10a.
+with
+R1 as (select * from PARTICIPA where premiu='Mentiune'),
+R2 as (select * from PROBE where clasa=10),
+R3 as (select * from PROBE where clasa=8),
+R4 as (select * from R2 union select * from R3),
+R5 as (select proba_id from R4),
+R6 as (select * from R1, R5 where R1.proba_id = R5.proba_id),
+R7 as (select elevi.nume,elevi.prenume from R6, elevi where R6.elev_id = elevi.elev_id)
+select nume||' '|| prenume Nume_elev from R7 ;
+
+with
+R1 as (select * from PARTICIPA where premiu='Mentiune'),
+R2 as (select * from PROBE where clasa=10),
+R3 as (select * from PROBE where clasa=8),
+R4 as (select proba_id from R2),
+R5 as (select proba_id from R3),
+R6 as (select * from R4 union select * from R5),
+R7 as (select * from R1, R6 where R1.proba_id = R6.proba_id),
+R8 as (select nume, prenume, elev_id from elevi)
+select R8.nume||' '|| R8.prenume Nume_elev from R8,R7 where R7.elev_id=R8.elev_id;
+
